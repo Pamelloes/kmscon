@@ -43,6 +43,7 @@
 #include "pty.h"
 #include "shl_dlist.h"
 #include "shl_log.h"
+#include "shl_timer.h"
 #include "text.h"
 #include "uterm_input.h"
 #include "uterm_video.h"
@@ -82,6 +83,10 @@ struct kmscon_terminal {
 	struct kmscon_font_attr font_attr;
 	struct kmscon_font *font;
 	struct kmscon_font *bold_font;
+	struct kmscon_font *uline_font;
+	struct kmscon_font *uline_bold_font;
+
+	struct ev_timer *rf_timer;
 };
 
 static void do_clear_margins(struct screen *scr)
@@ -229,11 +234,12 @@ static void terminal_resize(struct kmscon_terminal *term,
 static int font_set(struct kmscon_terminal *term)
 {
 	int ret;
-	struct kmscon_font *font, *bold_font;
+	struct kmscon_font *font, *bold_font, *uline_font, *uline_bold_font;
 	struct shl_dlist *iter;
 	struct screen *ent;
 
 	term->font_attr.bold = false;
+	term->font_attr.underline = false;
 	ret = kmscon_font_find(&font, &term->font_attr,
 			       term->conf->font_engine);
 	if (ret)
@@ -248,17 +254,48 @@ static int font_set(struct kmscon_terminal *term)
 		kmscon_font_ref(bold_font);
 	}
 
+	if (term->conf->uline) {
+		term->font_attr.bold = false;
+		term->font_attr.underline = true;
+		ret = kmscon_font_find(&uline_font, &term->font_attr,
+				       term->conf->font_engine);
+		if (ret) {
+			log_warning("cannot create underlined font: %d", ret);
+			uline_font = font;
+			kmscon_font_ref(uline_font);
+		}
+
+		term->font_attr.bold = true;
+		ret = kmscon_font_find(&uline_bold_font, &term->font_attr,
+				       term->conf->font_engine);
+		if (ret) {
+			log_warning("cannot create underlined bold font: %d", ret);
+			uline_bold_font = bold_font;
+			kmscon_font_ref(uline_bold_font);
+		}
+	} else {
+		uline_font = font;
+		kmscon_font_ref(uline_font);
+		uline_bold_font = bold_font;
+		kmscon_font_ref(uline_bold_font);
+	}
+
+	kmscon_font_unref(term->uline_bold_font);
+	kmscon_font_unref(term->uline_font);
 	kmscon_font_unref(term->bold_font);
 	kmscon_font_unref(term->font);
 	term->font = font;
 	term->bold_font = bold_font;
+	term->uline_font = uline_font;
+	term->uline_bold_font = uline_bold_font;
 
 	term->min_cols = 0;
 	term->min_rows = 0;
 	shl_dlist_for_each(iter, &term->screens) {
 		ent = shl_dlist_entry(iter, struct screen, list);
 
-		ret = kmscon_text_set(ent->txt, font, bold_font, ent->disp);
+		ret = kmscon_text_set(ent->txt, font, bold_font, 
+				      uline_font, uline_bold_font, ent->disp);
 		if (ret)
 			log_warning("cannot change text-renderer font: %d",
 				    ret);
@@ -310,13 +347,14 @@ static int add_display(struct kmscon_terminal *term, struct uterm_display *disp)
 	else
 		be = "bbulk";
 
-	ret = kmscon_text_new(&scr->txt, be);
+	ret = kmscon_text_new(&scr->txt, be, term->conf_ctx, term->conf);
 	if (ret) {
 		log_error("cannot create text-renderer");
 		goto err_cb;
 	}
 
 	ret = kmscon_text_set(scr->txt, term->font, term->bold_font,
+			      term->uline_font, term->uline_bold_font,
 			      scr->disp);
 	if (ret) {
 		log_error("cannot set text-renderer parameters");
@@ -511,9 +549,12 @@ static void terminal_destroy(struct kmscon_terminal *term)
 
 	terminal_close(term);
 	rm_all_screens(term);
+	ev_eloop_rm_timer(term->rf_timer);
 	uterm_input_unregister_cb(term->input, input_event, term);
 	ev_eloop_rm_fd(term->ptyfd);
 	kmscon_pty_unref(term->pty);
+	kmscon_font_unref(term->uline_bold_font);
+	kmscon_font_unref(term->uline_font);
 	kmscon_font_unref(term->bold_font);
 	kmscon_font_unref(term->font);
 	tsm_vte_unref(term->vte);
@@ -521,6 +562,41 @@ static void terminal_destroy(struct kmscon_terminal *term)
 	uterm_input_unref(term->input);
 	ev_eloop_unref(term->eloop);
 	free(term);
+}
+
+static void rf_cb(struct ev_timer *timer, uint64_t exp, void *data)
+{
+	struct kmscon_terminal *term = data;
+
+	redraw_all_test(term);
+}
+
+static void rf_timer_start(struct kmscon_terminal *term)
+{
+	struct itimerspec spec;
+
+	// We only need a refresh loop when we have blinking text.
+	if (!term->conf->tblink && !term->conf->cblink)
+		return;
+
+	log_debug("refresh timer start");
+
+	spec.it_value.tv_sec = 0;
+	spec.it_value.tv_nsec = 250L * 1000L * 1000L; /* 100ms */
+	spec.it_interval = spec.it_value;
+
+	ev_timer_update(term->rf_timer, &spec);
+}
+
+static void rf_timer_stop(struct kmscon_terminal *term)
+{
+	if (!term->conf->tblink && !term->conf->cblink)
+		return;
+
+	log_debug("refresh timer stop");
+
+	ev_timer_drain(term->rf_timer, NULL);
+	ev_timer_update(term->rf_timer, NULL);
 }
 
 static int session_event(struct kmscon_session *session,
@@ -543,8 +619,10 @@ static int session_event(struct kmscon_session *session,
 		if (!term->opened)
 			terminal_open(term);
 		redraw_all_test(term);
+		rf_timer_start(term);
 		break;
 	case KMSCON_SESSION_DEACTIVATE:
+		rf_timer_stop(term);
 		term->awake = false;
 		break;
 	case KMSCON_SESSION_UNREGISTER:
@@ -583,6 +661,7 @@ static void write_event(struct tsm_vte *vte, const char *u8, size_t len,
 
 	kmscon_pty_write(term->pty, u8, len);
 }
+
 
 int kmscon_terminal_register(struct kmscon_session **out,
 			     struct kmscon_seat *seat, unsigned int vtnr)
@@ -664,11 +743,17 @@ int kmscon_terminal_register(struct kmscon_session **out,
 	if (ret)
 		goto err_ptyfd;
 
+	// TODO New refresh timer code
+	ret = ev_eloop_new_timer(term->eloop, &term->rf_timer, NULL, rf_cb, term);
+	if (ret)
+		goto err_input;
+	// TODO End new code
+
 	ret = kmscon_seat_register_session(seat, &term->session, session_event,
 					   term);
 	if (ret) {
 		log_error("cannot register session for terminal: %d", ret);
-		goto err_input;
+		goto err_timer;
 	}
 
 	ev_eloop_ref(term->eloop);
@@ -677,6 +762,8 @@ int kmscon_terminal_register(struct kmscon_session **out,
 	log_debug("new terminal object %p", term);
 	return 0;
 
+err_timer:
+	ev_eloop_rm_timer(term->rf_timer);
 err_input:
 	uterm_input_unregister_cb(term->input, input_event, term);
 err_ptyfd:

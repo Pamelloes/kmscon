@@ -94,6 +94,8 @@ struct glyph {
 struct gltex {
 	struct shl_hashtable *glyphs;
 	struct shl_hashtable *bold_glyphs;
+	struct shl_hashtable *uline_glyphs;
+	struct shl_hashtable *uline_bold_glyphs;
 	unsigned int max_tex_size;
 	bool supports_rowlen;
 
@@ -110,6 +112,8 @@ struct gltex {
 
 	unsigned int sw;
 	unsigned int sh;
+
+	bool blink;
 };
 
 #define FONT_WIDTH(txt) ((txt)->font->attr.width)
@@ -173,11 +177,29 @@ static int gltex_set(struct kmscon_text *txt)
 	if (ret)
 		goto err_htable;
 
+	if (txt->conf->uline) {
+		ret = shl_hashtable_new(&gt->uline_glyphs, shl_direct_hash,
+					shl_direct_equal, NULL,
+					free_glyph);
+		if (ret)
+			goto err_bold_htable;
+
+		ret = shl_hashtable_new(&gt->uline_bold_glyphs, shl_direct_hash,
+					shl_direct_equal, NULL,
+					free_glyph);
+		if (ret)
+			goto err_uline_htable;
+
+	} else {
+		gt->uline_glyphs = NULL;
+		gt->uline_bold_glyphs = NULL;
+	}
+
 	ret = uterm_display_use(txt->disp, &opengl);
 	if (ret < 0 || !opengl) {
 		if (ret == -EOPNOTSUPP)
 			log_error("display doesn't support hardware-acceleration");
-		goto err_bold_htable;
+		goto err_uline_bold_htable;
 	}
 
 	vert = _binary_src_text_gltex_atlas_vert_bin_start;
@@ -189,7 +211,7 @@ static int gltex_set(struct kmscon_text *txt)
 	ret = gl_shader_new(&gt->shader, vert, vlen, frag, flen, attr, 4,
 			    log_llog, NULL);
 	if (ret)
-		goto err_bold_htable;
+		goto err_uline_bold_htable;
 
 	gt->uni_proj = gl_shader_get_uniform(gt->shader, "projection");
 	gt->uni_atlas = gl_shader_get_uniform(gt->shader, "atlas");
@@ -230,6 +252,10 @@ static int gltex_set(struct kmscon_text *txt)
 
 err_shader:
 	gl_shader_unref(gt->shader);
+err_uline_bold_htable:
+	shl_hashtable_free(gt->bold_glyphs);
+err_uline_htable:
+	shl_hashtable_free(gt->glyphs);
 err_bold_htable:
 	shl_hashtable_free(gt->bold_glyphs);
 err_htable:
@@ -251,6 +277,8 @@ static void gltex_unset(struct kmscon_text *txt)
 		log_warning("cannot activate OpenGL-CTX during destruction");
 	}
 
+	shl_hashtable_free(gt->uline_bold_glyphs);
+	shl_hashtable_free(gt->uline_glyphs);
 	shl_hashtable_free(gt->bold_glyphs);
 	shl_hashtable_free(gt->glyphs);
 
@@ -381,7 +409,8 @@ err_free:
 }
 
 static int find_glyph(struct kmscon_text *txt, struct glyph **out,
-		      uint32_t id, const uint32_t *ch, size_t len, bool bold)
+		      uint32_t id, const uint32_t *ch, size_t len, 
+		      bool bold, bool underline)
 {
 	struct gltex *gt = txt->data;
 	struct atlas *atlas;
@@ -394,11 +423,21 @@ static int find_glyph(struct kmscon_text *txt, struct glyph **out,
 	struct kmscon_font *font;
 
 	if (bold) {
-		gtable = gt->bold_glyphs;
-		font = txt->bold_font;
+		if (txt->conf->uline && underline) {
+			gtable = gt->uline_bold_glyphs;
+			font = txt->uline_bold_font;
+		} else {
+			gtable = gt->bold_glyphs;
+			font = txt->bold_font;
+		}
 	} else {
-		gtable = gt->glyphs;
-		font = txt->font;
+		if (txt->conf->uline && underline) {
+			gtable = gt->uline_glyphs;
+			font = txt->uline_font;
+		} else {
+			gtable = gt->glyphs;
+			font = txt->font;
+		}
 	}
 
 	res = shl_hashtable_find(gtable, (void**)&glyph,
@@ -556,7 +595,10 @@ static int gltex_draw(struct kmscon_text *txt,
 	if (!width)
 		return 0;
 
-	ret = find_glyph(txt, &glyph, id, ch, len, attr->bold);
+	if (txt->conf->tblink && attr->blink && txt->blink)
+		ret = find_glyph(txt, &glyph, 0, NULL, 0, attr->bold, attr->underline);
+	else 
+		ret = find_glyph(txt, &glyph, id, ch, len, attr->bold, attr->underline);
 	if (ret)
 		return ret;
 	atlas = glyph->atlas;

@@ -37,6 +37,7 @@
 #include <libtsm.h>
 #include <stdlib.h>
 #include "font.h"
+#include "kmscon_conf.h"
 #include "kmscon_module.h"
 #include "uterm_video.h"
 
@@ -53,10 +54,17 @@ struct kmscon_text {
 
 	struct kmscon_font *font;
 	struct kmscon_font *bold_font;
+	struct kmscon_font *uline_font;
+	struct kmscon_font *uline_bold_font;
 	struct uterm_display *disp;
 	unsigned int cols;
 	unsigned int rows;
 	bool rendering;
+
+	struct conf_ctx *conf_ctx;
+	struct kmscon_conf_t *conf;
+
+	bool blink;
 };
 
 struct kmscon_text_ops {
@@ -79,13 +87,16 @@ struct kmscon_text_ops {
 int kmscon_text_register(const struct kmscon_text_ops *ops);
 void kmscon_text_unregister(const char *name);
 
-int kmscon_text_new(struct kmscon_text **out, const char *backend);
+int kmscon_text_new(struct kmscon_text **out, const char *backend, 
+		    struct conf_ctx *conf_ctx, struct kmscon_conf_t *conf);
 void kmscon_text_ref(struct kmscon_text *txt);
 void kmscon_text_unref(struct kmscon_text *txt);
 
 int kmscon_text_set(struct kmscon_text *txt,
 		    struct kmscon_font *font,
 		    struct kmscon_font *bold_font,
+		    struct kmscon_font *uline_font,
+		    struct kmscon_font *uline_bold_font,
 		    struct uterm_display *disp);
 void kmscon_text_unset(struct kmscon_text *txt);
 unsigned int kmscon_text_get_cols(struct kmscon_text *txt);

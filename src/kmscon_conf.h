@@ -92,6 +92,12 @@ struct kmscon_conf_t {
 	char *palette;
 	/* terminal scroll-back buffer size */
 	unsigned int sb_size;
+	/* underlined text */
+	bool uline;
+	/* blinking text */
+	bool tblink;
+	/* blinking cursor */
+	bool cblink;
 
 	/* Input Options */
 	/* input KBD model */

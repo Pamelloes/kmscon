@@ -130,6 +130,8 @@ bool kmscon_font_attr_match(const struct kmscon_font_attr *a1,
 		return false;
 	if (a1->italic != a2->italic)
 		return false;
+	if (a1->underline != a2->underline)
+		return false;
 	if (*a1->name && *a2->name && strcmp(a1->name, a2->name))
 		return false;
 
@@ -314,9 +316,9 @@ int kmscon_font_find(struct kmscon_font **out,
 	if (!out || !attr)
 		return -EINVAL;
 
-	log_debug("searching for: be: %s nm: %s ppi: %u pt: %u b: %d i: %d he: %u wt: %u",
+	log_debug("searching for: be: %s nm: %s ppi: %u pt: %u b: %d i: %d u: %d he: %u wt: %u",
 		  backend, attr->name, attr->ppi, attr->points,
-		  attr->bold, attr->italic, attr->height,
+		  attr->bold, attr->italic, attr->underline, attr->height,
 		  attr->width);
 
 	font = malloc(sizeof(*font));
@@ -333,9 +335,9 @@ int kmscon_font_find(struct kmscon_font **out,
 			goto err_free;
 	}
 
-	log_debug("using: be: %s nm: %s ppi: %u pt: %u b: %d i: %d he: %u wt: %u",
+	log_debug("using: be: %s nm: %s ppi: %u pt: %u b: %d i: %d u: %d he: %u wt: %u",
 		  font->ops->name, font->attr.name, font->attr.ppi,
-		  font->attr.points, font->attr.bold, font->attr.italic,
+		  font->attr.points, font->attr.bold, attr->underline, font->attr.italic,
 		  font->attr.height, font->attr.width);
 	*out = font;
 	return 0;
@@ -436,7 +438,7 @@ int kmscon_font_render_empty(struct kmscon_font *font,
  * kmscon_font_render() returns -ERANGE, then this glyph can be used as
  * replacement.
  *
- * Returns: 0 on success ,engative error code on failure
+ * Returns: 0 on success, negative error code on failure
  */
 SHL_EXPORT
 int kmscon_font_render_inval(struct kmscon_font *font,

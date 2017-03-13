@@ -114,6 +114,8 @@ static int get_glyph(struct face *face, struct kmscon_glyph **out,
 {
 	struct kmscon_glyph *glyph;
 	PangoLayout *layout;
+	PangoAttrList *attr;
+	PangoAttribute *uline;
 	PangoRectangle rec;
 	PangoLayoutLine *line;
 	FT_Bitmap bitmap;
@@ -165,12 +167,21 @@ static int get_glyph(struct face *face, struct kmscon_glyph **out,
 	pango_layout_set_text(layout, val, ulen);
 	free(val);
 
+	if (face->attr.underline) {
+		attr = pango_attr_list_new();
+		uline = pango_attr_underline_new(PANGO_UNDERLINE_SINGLE);
+		pango_attr_list_insert(attr, uline);
+		pango_layout_set_attributes(layout, attr);
+		pango_attr_list_unref(attr);
+	}
+
 	cnt = pango_layout_get_line_count(layout);
 	if (cnt == 0) {
 		ret = -ERANGE;
 		goto out_glyph;
 	}
 
+	log_debug("get_line");
 	line = pango_layout_get_line_readonly(layout, 0);
 
 	pango_layout_line_get_pixel_extents(line, NULL, &rec);
@@ -192,6 +203,7 @@ static int get_glyph(struct face *face, struct kmscon_glyph **out,
 	}
 	memset(glyph->buf.data, 0, glyph->buf.height * glyph->buf.stride);
 
+	log_debug("bitmap");
 	bitmap.rows = glyph->buf.height;
 	bitmap.width = glyph->buf.width;
 	bitmap.pitch = glyph->buf.stride;
@@ -237,6 +249,8 @@ static int manager_get_face(struct face **out, struct kmscon_font_attr *attr)
 	struct face *face, *f;
 	PangoFontDescription *desc;
 	PangoLayout *layout;
+	PangoAttrList *attrl;
+	PangoAttribute *uline;
 	PangoRectangle rec;
 	int ret, num;
 	const char *str;
@@ -306,6 +320,15 @@ static int manager_get_face(struct face **out, struct kmscon_font_attr *attr)
 	      "@!\"$%&/()=?\\}][{°^~+*#'<>|-_.:,;`´";
 	num = strlen(str);
 	pango_layout_set_text(layout, str, num);
+
+	if (attr->underline) {
+		attrl = pango_attr_list_new();
+		uline = pango_attr_underline_new(PANGO_UNDERLINE_SINGLE);
+		pango_attr_list_insert(attrl, uline);
+		pango_layout_set_attributes(layout, attrl);
+		pango_attr_list_unref(attrl);
+	}
+
 	pango_layout_get_pixel_extents(layout, NULL, &rec);
 
 	memcpy(&face->real_attr, &face->attr, sizeof(face->attr));

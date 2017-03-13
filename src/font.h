@@ -52,6 +52,7 @@ struct kmscon_font_attr {
 	unsigned int points;
 	bool bold;
 	bool italic;
+	bool underline;
 	unsigned int height;
 	unsigned int width;
 };

@@ -127,12 +127,19 @@ static int bbulk_draw(struct kmscon_text *txt,
 		return 0;
 	}
 
-	if (attr->bold)
-		font = txt->bold_font;
-	else
-		font = txt->font;
+	if (attr->bold) {
+		if (attr->underline)
+			font = txt->uline_bold_font;
+		else
+			font = txt->bold_font;
+	} else {
+		if (attr->underline)
+			font = txt->uline_font;
+		else
+			font = txt->font;
+	}
 
-	if (!len) {
+	if (!len || (txt->conf->tblink && attr->blink && txt->blink)) {
 		ret = kmscon_font_render_empty(font, &glyph);
 	} else {
 		ret = kmscon_font_render(font, id, ch, len, &glyph);

@@ -49,6 +49,8 @@ struct tp_pixman {
 	pixman_image_t *white;
 	struct shl_hashtable *glyphs;
 	struct shl_hashtable *bold_glyphs;
+	struct shl_hashtable *uline_glyphs;
+	struct shl_hashtable *uline_bold_glyphs;
 
 	struct uterm_video_buffer buf[2];
 	pixman_image_t *surf[2];
@@ -196,6 +198,24 @@ static int tp_set(struct kmscon_text *txt)
 	if (ret)
 		goto err_htable;
 
+	if (txt->conf->uline) {
+		ret = shl_hashtable_new(&tp->uline_glyphs, shl_direct_hash,
+					shl_direct_equal, NULL,
+					free_glyph);
+		if (ret)
+			goto err_htable_bold;
+
+		ret = shl_hashtable_new(&tp->uline_bold_glyphs, shl_direct_hash,
+					shl_direct_equal, NULL,
+					free_glyph);
+		if (ret)
+			goto err_htable_uline;
+
+	} else {
+		tp->uline_glyphs = NULL;
+		tp->uline_bold_glyphs = NULL;
+	}
+
 	/*
 	 * TODO: It is actually faster to use a local shadow buffer and then
 	 * blit all data to the framebuffer afterwards. Reads seem to be
@@ -209,7 +229,7 @@ static int tp_set(struct kmscon_text *txt)
 			    txt->disp);
 		ret = alloc_indirect(txt, w, h);
 		if (ret)
-			goto err_htable_bold;
+			goto err_htable_bold_uline;
 	} else {
 		tp->format[0] = format_u2p(tp->buf[0].format);
 		tp->surf[0] = pixman_image_create_bits_no_clear(tp->format[0],
@@ -239,6 +259,10 @@ err_ctx:
 		pixman_image_unref(tp->surf[0]);
 	free(tp->data[1]);
 	free(tp->data[0]);
+err_htable_bold_uline:
+	shl_hashtable_free(tp->uline_bold_glyphs);
+err_htable_uline:
+	shl_hashtable_free(tp->uline_glyphs);
 err_htable_bold:
 	shl_hashtable_free(tp->bold_glyphs);
 err_htable:
@@ -256,13 +280,16 @@ static void tp_unset(struct kmscon_text *txt)
 	pixman_image_unref(tp->surf[0]);
 	free(tp->data[1]);
 	free(tp->data[0]);
+	shl_hashtable_free(tp->uline_bold_glyphs);
+	shl_hashtable_free(tp->uline_glyphs);
 	shl_hashtable_free(tp->bold_glyphs);
 	shl_hashtable_free(tp->glyphs);
 	pixman_image_unref(tp->white);
 }
 
 static int find_glyph(struct kmscon_text *txt, struct tp_glyph **out,
-		      uint32_t id, const uint32_t *ch, size_t len, bool bold)
+		      uint32_t id, const uint32_t *ch, size_t len, 
+		      bool bold, bool underline)
 {
 	struct tp_pixman *tp = txt->data;
 	struct tp_glyph *glyph;
@@ -275,11 +302,21 @@ static int find_glyph(struct kmscon_text *txt, struct tp_glyph **out,
 	bool res;
 
 	if (bold) {
-		gtable = tp->bold_glyphs;
-		font = txt->bold_font;
+		if (txt->conf->uline && underline) {
+			gtable = tp->uline_bold_glyphs;
+			font = txt->uline_bold_font;
+		} else {
+			gtable = tp->bold_glyphs;
+			font = txt->bold_font;
+		}
 	} else {
-		gtable = tp->glyphs;
-		font = txt->font;
+		if (txt->conf->uline && underline) {
+			gtable = tp->uline_glyphs;
+			font = txt->uline_font;
+		} else {
+			gtable = tp->glyphs;
+			font = txt->font;
+		}
 	}
 
 	res = shl_hashtable_find(gtable, (void**)&glyph,
@@ -402,7 +439,10 @@ static int tp_draw(struct kmscon_text *txt,
 	if (!width)
 		return 0;
 
-	ret = find_glyph(txt, &glyph, id, ch, len, attr->bold);
+	if (txt->conf->tblink && attr->blink && txt->blink)
+		ret = find_glyph(txt, &glyph, 0, NULL, 0, attr->bold, attr->underline);
+	else
+		ret = find_glyph(txt, &glyph, id, ch, len, attr->bold, attr->underline);
 	if (ret)
 		return ret;
 

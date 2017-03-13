@@ -40,6 +40,7 @@
 #include "shl_misc.h"
 #include "shl_register.h"
 #include "text.h"
+#include <time.h>
 #include "uterm_video.h"
 
 #define LOG_SUBSYSTEM "text"
@@ -103,7 +104,8 @@ void kmscon_text_unregister(const char *name)
 	shl_register_remove(&text_reg, name);
 }
 
-static int new_text(struct kmscon_text *text, const char *backend)
+static int new_text(struct kmscon_text *text, const char *backend,
+		    struct conf_ctx *conf_ctx, struct kmscon_conf_t *conf)
 {
 	struct shl_register_record *record;
 	const char *name = backend ? backend : "<default>";
@@ -124,6 +126,8 @@ static int new_text(struct kmscon_text *text, const char *backend)
 
 	text->record = record;
 	text->ops = record->data;
+	text->conf_ctx = conf_ctx;
+	text->conf = conf;
 
 	if (text->ops->init)
 		ret = text->ops->init(text);
@@ -143,10 +147,13 @@ static int new_text(struct kmscon_text *text, const char *backend)
  * kmscon_text_new:
  * @out: A pointer to the new text-renderer is stored here
  * @backend: Backend to use or NULL for default backend
+ * @conf_ctx: ??
+ * @conf: The configuration struct
  *
  * Returns: 0 on success, error code on failure
  */
-int kmscon_text_new(struct kmscon_text **out, const char *backend)
+int kmscon_text_new(struct kmscon_text **out, const char *backend,
+		    struct conf_ctx *conf_ctx, struct kmscon_conf_t *conf)
 {
 	struct kmscon_text *text;
 	int ret;
@@ -160,10 +167,10 @@ int kmscon_text_new(struct kmscon_text **out, const char *backend)
 		return -ENOMEM;
 	}
 
-	ret = new_text(text, backend);
+	ret = new_text(text, backend, conf_ctx, conf);
 	if (ret) {
 		if (backend)
-			ret = new_text(text, NULL);
+			ret = new_text(text, NULL, conf_ctx, conf);
 		if (ret)
 			goto err_free;
 	}
@@ -217,6 +224,8 @@ void kmscon_text_unref(struct kmscon_text *text)
  * @txt: Valid text-renderer object
  * @font: font object
  * @bold_font: bold font object or NULL
+ * @uline_font: underlined font object or NULL
+ * @uline_bold_font: underlined bold font object or NULL
  * @disp: display object
  *
  * This makes the text-renderer @txt use the font @font and screen @screen. You
@@ -225,8 +234,10 @@ void kmscon_text_unref(struct kmscon_text *text)
  * None of the arguments can be NULL!
  * If this function fails then you must assume that no font/screen will be set
  * and the object is invalid.
- * If @bold_font is NULL, @font is also used for bold characters. The caller
- * must make sure that @font and @bold_font have the same metrics. The renderers
+ * If @bold_font is NULL, @font is also used for bold characters. 
+ * If @uline_font is NULL, @font is also used for underlined characters.
+ * If @uline_bold_font is NULL, @bold_font is also used for bold underlined characters.
+ * The caller must make sure that all of the fonts have the same metrics. The renderers
  * will always use the metrics of @font.
  *
  * Returns: 0 on success, negative error code on failure.
@@ -234,6 +245,8 @@ void kmscon_text_unref(struct kmscon_text *text)
 int kmscon_text_set(struct kmscon_text *txt,
 		    struct kmscon_font *font,
 		    struct kmscon_font *bold_font,
+		    struct kmscon_font *uline_font,
+		    struct kmscon_font *uline_bold_font,
 		    struct uterm_display *disp)
 {
 	int ret;
@@ -243,11 +256,17 @@ int kmscon_text_set(struct kmscon_text *txt,
 
 	if (!bold_font)
 		bold_font = font;
+	if (!uline_font)
+		uline_font = font;
+	if (!uline_bold_font)
+		uline_bold_font = font;
 
 	kmscon_text_unset(txt);
 
 	txt->font = font;
 	txt->bold_font = bold_font;
+	txt->uline_font = uline_font;
+	txt->uline_bold_font = uline_bold_font;
 	txt->disp = disp;
 
 	if (txt->ops->set) {
@@ -255,6 +274,8 @@ int kmscon_text_set(struct kmscon_text *txt,
 		if (ret) {
 			txt->font = NULL;
 			txt->bold_font = NULL;
+			txt->uline_font = NULL;
+			txt->uline_bold_font = NULL;
 			txt->disp = NULL;
 			return ret;
 		}
@@ -262,6 +283,8 @@ int kmscon_text_set(struct kmscon_text *txt,
 
 	kmscon_font_ref(txt->font);
 	kmscon_font_ref(txt->bold_font);
+	kmscon_font_ref(txt->uline_font);
+	kmscon_font_ref(txt->uline_bold_font);
 	uterm_display_ref(txt->disp);
 
 	return 0;
@@ -286,9 +309,13 @@ void kmscon_text_unset(struct kmscon_text *txt)
 
 	kmscon_font_unref(txt->font);
 	kmscon_font_unref(txt->bold_font);
+	kmscon_font_unref(txt->uline_font);
+	kmscon_font_unref(txt->uline_bold_font);
 	uterm_display_unref(txt->disp);
 	txt->font = NULL;
 	txt->bold_font = NULL;
+	txt->uline_font = NULL;
+	txt->uline_bold_font = NULL;
 	txt->disp = NULL;
 	txt->cols = 0;
 	txt->rows = 0;
@@ -350,8 +377,22 @@ int kmscon_text_prepare(struct kmscon_text *txt)
 {
 	int ret = 0;
 
+	int64_t off, msec;
+	struct timespec spec;
+
 	if (!txt || !txt->font || !txt->disp)
 		return -EINVAL;
+
+	// Update the blink status
+	if (txt->conf->cblink || txt->conf->tblink) {
+		clock_gettime(CLOCK_MONOTONIC, &spec);
+		off = spec.tv_sec;
+		msec = spec.tv_nsec / 1e6;
+		off = off * 1000 + msec;
+		off /= 250;
+		
+		txt->blink = off % 2;
+	}
 
 	txt->rendering = true;
 	if (txt->ops->prepare)

@@ -98,6 +98,13 @@ static void print_help()
 		"\t                              Select the used color palette\n"
 		"\t    --sb-size <num>         [1000]\n"
 		"\t                              Size of the scrollback-buffer in lines\n"
+		"\t    --underline             [off]\n"
+		"\t                              Render underlined text (requires pango\n"
+		"\t                              and doubles resource usage for fonts)\n"
+		"\t    --text-blink            [off]\n"
+		"\t                              Render blinking text\n"
+		"\t    --cursor-blink          [on]\n"
+		"\t                              Render blinking cursor\n"
 		"\n"
 		"Input Options:\n"
 		"\t    --xkb-model <model>        [-]  Set XkbModel for input devices\n"
@@ -569,6 +576,9 @@ int kmscon_conf_new(struct conf_ctx **out)
 		CONF_OPTION_BOOL(0, "reset-env", &conf->reset_env, true),
 		CONF_OPTION_STRING(0, "palette", &conf->palette, NULL),
 		CONF_OPTION_UINT(0, "sb-size", &conf->sb_size, 1000),
+		CONF_OPTION_BOOL(0, "underline", &conf->uline, false),
+		CONF_OPTION_BOOL(0, "text-blink", &conf->tblink, false),
+		CONF_OPTION_BOOL(0, "cursor-blink", &conf->cblink, true),
 
 		/* Input Options */
 		CONF_OPTION_STRING(0, "xkb-model", &conf->xkb_model, ""),

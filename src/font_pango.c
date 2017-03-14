@@ -181,7 +181,6 @@ static int get_glyph(struct face *face, struct kmscon_glyph **out,
 		goto out_glyph;
 	}
 
-	log_debug("get_line");
 	line = pango_layout_get_line_readonly(layout, 0);
 
 	pango_layout_line_get_pixel_extents(line, NULL, &rec);
@@ -203,7 +202,6 @@ static int get_glyph(struct face *face, struct kmscon_glyph **out,
 	}
 	memset(glyph->buf.data, 0, glyph->buf.height * glyph->buf.stride);
 
-	log_debug("bitmap");
 	bitmap.rows = glyph->buf.height;
 	bitmap.width = glyph->buf.width;
 	bitmap.pitch = glyph->buf.stride;

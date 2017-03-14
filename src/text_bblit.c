@@ -70,17 +70,22 @@ static int bblit_draw(struct kmscon_text *txt,
 	const struct kmscon_glyph *glyph;
 	int ret;
 	struct kmscon_font *font;
+	bool curon, underline, inverse;
 
 	if (!width)
 		return 0;
 
+	curon = attr->cursor && !(txt->conf->cblink && txt->blink);
+	underline = txt->conf->uline ? (!attr->underline != !curon) : attr->underline;
+	inverse = txt->conf->uline ? attr-> inverse : (!attr->inverse != !curon);
+
 	if (attr->bold) {
-		if (attr->underline)
+		if (underline)
 			font = txt->uline_bold_font;
 		else
 			font = txt->bold_font;
 	} else {
-		if (attr->underline)
+		if (underline)
 			font = txt->uline_font;
 		else
 			font = txt->font;
@@ -99,7 +104,7 @@ static int bblit_draw(struct kmscon_text *txt,
 	}
 
 	/* draw glyph */
-	if (attr->inverse) {
+	if (inverse) {
 		ret = uterm_display_fake_blend(txt->disp, &glyph->buf,
 					       posx * txt->font->attr.width,
 					       posy * txt->font->attr.height,

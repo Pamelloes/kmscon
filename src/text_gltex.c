@@ -591,14 +591,19 @@ static int gltex_draw(struct kmscon_text *txt,
 	struct atlas *atlas;
 	struct glyph *glyph;
 	int ret, i, idx;
+	bool curon, underline, inverse;
 
 	if (!width)
 		return 0;
 
+	curon = attr->cursor && !(txt->conf->cblink && txt->blink);
+	underline = txt->conf->uline ? (!attr->underline != !curon) : attr->underline;
+	inverse = txt->conf->uline ? attr-> inverse : (!attr->inverse != !curon);
+
 	if (txt->conf->tblink && attr->blink && txt->blink)
-		ret = find_glyph(txt, &glyph, 0, NULL, 0, attr->bold, attr->underline);
+		ret = find_glyph(txt, &glyph, 0, NULL, 0, attr->bold, underline);
 	else 
-		ret = find_glyph(txt, &glyph, id, ch, len, attr->bold, attr->underline);
+		ret = find_glyph(txt, &glyph, id, ch, len, attr->bold, underline);
 	if (ret)
 		return ret;
 	atlas = glyph->atlas;
@@ -648,7 +653,7 @@ static int gltex_draw(struct kmscon_text *txt,
 
 	for (i = 0; i < 6; ++i) {
 		idx = atlas->cache_num * 3 * 6 + i * 3;
-		if (attr->inverse) {
+		if (inverse) {
 			atlas->cache_fgcol[idx + 0] = attr->br / 255.0;
 			atlas->cache_fgcol[idx + 1] = attr->bg / 255.0;
 			atlas->cache_fgcol[idx + 2] = attr->bb / 255.0;

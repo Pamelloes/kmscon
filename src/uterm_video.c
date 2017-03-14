@@ -212,8 +212,6 @@ static void display_vblank_timer_event(struct ev_timer *timer,
 {
 	struct uterm_display *disp = data;
 
-	log_debug("Timer call?");
-
 	disp->vblank_scheduled = false;
 	DISPLAY_CB(disp, UTERM_PAGE_FLIP);
 }

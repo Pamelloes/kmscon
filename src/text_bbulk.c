@@ -121,6 +121,11 @@ static int bbulk_draw(struct kmscon_text *txt,
 	int ret;
 	struct uterm_video_blend_req *req;
 	struct kmscon_font *font;
+	bool curon, underline, inverse;
+
+	curon = attr->cursor && !(txt->conf->cblink && txt->blink);
+	underline = txt->conf->uline ? (!attr->underline != !curon) : attr->underline;
+	inverse = txt->conf->uline ? attr-> inverse : (!attr->inverse != !curon);
 
 	if (!width) {
 		bb->reqs[posy * txt->cols + posx].buf = NULL;
@@ -128,12 +133,12 @@ static int bbulk_draw(struct kmscon_text *txt,
 	}
 
 	if (attr->bold) {
-		if (attr->underline)
+		if (underline)
 			font = txt->uline_bold_font;
 		else
 			font = txt->bold_font;
 	} else {
-		if (attr->underline)
+		if (underline)
 			font = txt->uline_font;
 		else
 			font = txt->font;
@@ -153,7 +158,7 @@ static int bbulk_draw(struct kmscon_text *txt,
 
 	req = &bb->reqs[posy * txt->cols + posx];
 	req->buf = &glyph->buf;
-	if (attr->inverse) {
+	if (inverse) {
 		req->fr = attr->br;
 		req->fg = attr->bg;
 		req->fb = attr->bb;

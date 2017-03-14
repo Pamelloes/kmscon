@@ -435,18 +435,23 @@ static int tp_draw(struct kmscon_text *txt,
 	uint32_t bc;
 	pixman_color_t fc;
 	pixman_image_t *col;
+	vool curon, underline, inverse;
 
 	if (!width)
 		return 0;
 
+	curon = attr->cursor && !(txt->conf->cblink && txt->blink);
+	underline = txt->conf->uline ? (!attr->underline != !curon) : attr->underline;
+	inverse = txt->conf->uline ? attr->inverse : (!attr->inverse != !curon);
+
 	if (txt->conf->tblink && attr->blink && txt->blink)
-		ret = find_glyph(txt, &glyph, 0, NULL, 0, attr->bold, attr->underline);
+		ret = find_glyph(txt, &glyph, 0, NULL, 0, attr->bold, underline);
 	else
-		ret = find_glyph(txt, &glyph, id, ch, len, attr->bold, attr->underline);
+		ret = find_glyph(txt, &glyph, id, ch, len, attr->bold, underline);
 	if (ret)
 		return ret;
 
-	if (attr->inverse) {
+	if (inverse) {
 		bc = (attr->fr << 16) | (attr->fg << 8) | (attr->fb);
 		fc.red = attr->br << 8;
 		fc.green = attr->bg << 8;

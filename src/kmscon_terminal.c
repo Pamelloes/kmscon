@@ -81,10 +81,7 @@ struct kmscon_terminal {
 	struct ev_fd *ptyfd;
 
 	struct kmscon_font_attr font_attr;
-	struct kmscon_font *font;
-	struct kmscon_font *bold_font;
-	struct kmscon_font *uline_font;
-	struct kmscon_font *uline_bold_font;
+	struct kmscon_font *fonts[8];
 
 	struct ev_timer *rf_timer;
 };
@@ -101,8 +98,8 @@ static void do_clear_margins(struct screen *scr)
 
 	sw = uterm_mode_get_width(mode);
 	sh = uterm_mode_get_height(mode);
-	w = scr->txt->font->attr.width * scr->txt->cols;
-	h = scr->txt->font->attr.height * scr->txt->rows;
+	w = scr->txt->fonts[0]->attr.width * scr->txt->cols;
+	h = scr->txt->fonts[0]->attr.height * scr->txt->rows;
 	dw = sw - w;
 	dh = sh - h;
 
@@ -201,9 +198,9 @@ static void display_event(struct uterm_display *disp,
  * This can be extended to support scaling but that would mean we need to check
  * whether the text-renderer backend supports that, first (TODO).
  *
- * If @force is true, then the console/pty are notified even though the size did
- * not changed. If @notify is false, then console/pty are not notified even
- * though the size might have changed. force = true and notify = false doesn't
+ * If @force is true, then the console/pty are notified even if the size did
+ * not change. If @notify is false, then console/pty are not notified even
+ * if the size might have changed. force = true and notify = false doesn't
  * make any sense, though.
  */
 static void terminal_resize(struct kmscon_terminal *term,
@@ -234,68 +231,55 @@ static void terminal_resize(struct kmscon_terminal *term,
 static int font_set(struct kmscon_terminal *term)
 {
 	int ret;
-	struct kmscon_font *font, *bold_font, *uline_font, *uline_bold_font;
+	struct kmscon_font *fonts[8];
 	struct shl_dlist *iter;
 	struct screen *ent;
+	int i, j;
 
-	term->font_attr.bold = false;
-	term->font_attr.underline = false;
-	ret = kmscon_font_find(&font, &term->font_attr,
-			       term->conf->font_engine);
-	if (ret)
-		return ret;
+	memset(fonts, 0, 8 * sizeof(struct kmscon_font*));
+	for (i = 0; i < 8; i++) {
+		j = i;
+		if (!term->conf->uline && (i & KMSCON_TEXT_UNDERLINE))
+			j ^= KMSCON_TEXT_UNDERLINE;
+		if (!term->conf->italic && (i & KMSCON_TEXT_ITALIC))
+			j ^= KMSCON_TEXT_ITALIC;
 
-	term->font_attr.bold = true;
-	ret = kmscon_font_find(&bold_font, &term->font_attr,
-			       term->conf->font_engine);
-	if (ret) {
-		log_warning("cannot create bold font: %d", ret);
-		bold_font = font;
-		kmscon_font_ref(bold_font);
-	}
-
-	if (term->conf->uline) {
-		term->font_attr.bold = false;
-		term->font_attr.underline = true;
-		ret = kmscon_font_find(&uline_font, &term->font_attr,
-				       term->conf->font_engine);
-		if (ret) {
-			log_warning("cannot create underlined font: %d", ret);
-			uline_font = font;
-			kmscon_font_ref(uline_font);
+		// We need to do fallback handling here so that
+		// we can add an extra reference---because we unref
+		// all 8 fonts on dealloc.
+		if (j != i) {
+			fonts[i] = fonts[j];
+			kmscon_font_ref(fonts[i]);
+			continue;
 		}
 
-		term->font_attr.bold = true;
-		ret = kmscon_font_find(&uline_bold_font, &term->font_attr,
-				       term->conf->font_engine);
+		term->font_attr.bold = i & KMSCON_TEXT_BOLD;
+		term->font_attr.underline = i & KMSCON_TEXT_UNDERLINE;
+		term->font_attr.italic = i & KMSCON_TEXT_ITALIC;
+		ret = kmscon_font_find(fonts + i, &term->font_attr,
+		                       term->conf->font_engine);
 		if (ret) {
-			log_warning("cannot create underlined bold font: %d", ret);
-			uline_bold_font = bold_font;
-			kmscon_font_ref(uline_bold_font);
-		}
-	} else {
-		uline_font = font;
-		kmscon_font_ref(uline_font);
-		uline_bold_font = bold_font;
-		kmscon_font_ref(uline_bold_font);
-	}
+			if (i == KMSCON_TEXT_NORMAL) return ret;
 
-	kmscon_font_unref(term->uline_bold_font);
-	kmscon_font_unref(term->uline_font);
-	kmscon_font_unref(term->bold_font);
-	kmscon_font_unref(term->font);
-	term->font = font;
-	term->bold_font = bold_font;
-	term->uline_font = uline_font;
-	term->uline_bold_font = uline_bold_font;
+			// We're going to leave the font as NULL and let
+			// kmscon_text_set work it out.
+			log_warning("cannot create font with modifiers %d: %d", i, ret);	
+		}
+	}
+	
+
+	for (i = 0; i < 8; i++)
+		kmscon_font_unref(term->fonts[i]);
+	memcpy(term->fonts, fonts, 8 * sizeof(struct kmscon_font*));
+	for (i = 0; i < 8; i++)
+		log_warning("Font %d: %p", i, term->fonts[i]);
 
 	term->min_cols = 0;
 	term->min_rows = 0;
 	shl_dlist_for_each(iter, &term->screens) {
 		ent = shl_dlist_entry(iter, struct screen, list);
 
-		ret = kmscon_text_set(ent->txt, font, bold_font, 
-				      uline_font, uline_bold_font, ent->disp);
+		ret = kmscon_text_set(ent->txt, fonts, ent->disp);
 		if (ret)
 			log_warning("cannot change text-renderer font: %d",
 				    ret);
@@ -353,9 +337,7 @@ static int add_display(struct kmscon_terminal *term, struct uterm_display *disp)
 		goto err_cb;
 	}
 
-	ret = kmscon_text_set(scr->txt, term->font, term->bold_font,
-			      term->uline_font, term->uline_bold_font,
-			      scr->disp);
+	ret = kmscon_text_set(scr->txt, term->fonts, scr->disp);
 	if (ret) {
 		log_error("cannot set text-renderer parameters");
 		goto err_text;
@@ -545,6 +527,8 @@ static void terminal_close(struct kmscon_terminal *term)
 
 static void terminal_destroy(struct kmscon_terminal *term)
 {
+	int i;
+
 	log_debug("free terminal object %p", term);
 
 	terminal_close(term);
@@ -553,10 +537,8 @@ static void terminal_destroy(struct kmscon_terminal *term)
 	uterm_input_unregister_cb(term->input, input_event, term);
 	ev_eloop_rm_fd(term->ptyfd);
 	kmscon_pty_unref(term->pty);
-	kmscon_font_unref(term->uline_bold_font);
-	kmscon_font_unref(term->uline_font);
-	kmscon_font_unref(term->bold_font);
-	kmscon_font_unref(term->font);
+	for (i = 0; i < 8; i++)
+		kmscon_font_unref(term->fonts[i]);
 	tsm_vte_unref(term->vte);
 	tsm_screen_unref(term->console);
 	uterm_input_unref(term->input);
@@ -668,6 +650,7 @@ int kmscon_terminal_register(struct kmscon_session **out,
 {
 	struct kmscon_terminal *term;
 	int ret;
+	int i;
 
 	if (!out || !seat)
 		return -EINVAL;
@@ -705,7 +688,7 @@ int kmscon_terminal_register(struct kmscon_session **out,
 	if (ret)
 		goto err_vte;
 
-	ret = kmscon_pty_new(&term->pty, pty_input, term);
+	ret = kmscon_pty_new(&term->pty, term->conf, pty_input, term);
 	if (ret)
 		goto err_font;
 
@@ -771,8 +754,8 @@ err_ptyfd:
 err_pty:
 	kmscon_pty_unref(term->pty);
 err_font:
-	kmscon_font_unref(term->bold_font);
-	kmscon_font_unref(term->font);
+	for (i = 0; i < 8; i++)
+		kmscon_font_unref(term->fonts[i]);
 err_vte:
 	tsm_vte_unref(term->vte);
 err_con:

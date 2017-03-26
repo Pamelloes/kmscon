@@ -47,8 +47,8 @@ static int bblit_set(struct kmscon_text *txt)
 	unsigned int sw, sh, fw, fh;
 	struct uterm_mode *mode;
 
-	fw = txt->font->attr.width;
-	fh = txt->font->attr.height;
+	fw = txt->fonts[0]->attr.width;
+	fh = txt->fonts[0]->attr.height;
 	mode = uterm_display_get_current(txt->disp);
 	if (!mode)
 		return -EINVAL;
@@ -71,25 +71,20 @@ static int bblit_draw(struct kmscon_text *txt,
 	int ret;
 	struct kmscon_font *font;
 	bool curon, underline, inverse;
+	int fonti;
 
 	if (!width)
 		return 0;
 
 	curon = attr->cursor && !(txt->conf->cblink && txt->blink);
 	underline = txt->conf->uline ? (!attr->underline != !curon) : attr->underline;
-	inverse = txt->conf->uline ? attr-> inverse : (!attr->inverse != !curon);
+	inverse = txt->conf->uline ? attr-> inverse : (!curon && attr->inverse);
 
-	if (attr->bold) {
-		if (underline)
-			font = txt->uline_bold_font;
-		else
-			font = txt->bold_font;
-	} else {
-		if (underline)
-			font = txt->uline_font;
-		else
-			font = txt->font;
-	}
+    fonti = KMSCON_TEXT_NORMAL;
+	fonti |= attr->bold ? KMSCON_TEXT_BOLD : 0;
+	fonti |= underline ? KMSCON_TEXT_UNDERLINE : 0;
+	fonti |= attr->italic ? KMSCON_TEXT_ITALIC : 0;
+	font = txt->fonts[fonti];
 
 	if (!len || (txt->conf->tblink && attr->blink && txt->blink)) {
 		ret = kmscon_font_render_empty(font, &glyph);
@@ -106,14 +101,19 @@ static int bblit_draw(struct kmscon_text *txt,
 	/* draw glyph */
 	if (inverse) {
 		ret = uterm_display_fake_blend(txt->disp, &glyph->buf,
-					       posx * txt->font->attr.width,
-					       posy * txt->font->attr.height,
+					       posx * txt->fonts[0]->attr.width,
+					       posy * txt->fonts[0]->attr.height,
 					       attr->br, attr->bg, attr->bb,
 					       attr->fr, attr->fg, attr->fb);
+	} else if (!txt->conf->uline && curon) {
+		ret = uterm_display_fake_blend(txt->disp, &glyph->buf,
+					       posx * txt->fonts[0]->attr.width,
+					       posy * txt->fonts[0]->attr.height,
+					       255,255,255,102,102,102);
 	} else {
 		ret = uterm_display_fake_blend(txt->disp, &glyph->buf,
-					       posx * txt->font->attr.width,
-					       posy * txt->font->attr.height,
+					       posx * txt->fonts[0]->attr.width,
+					       posy * txt->fonts[0]->attr.height,
 					       attr->fr, attr->fg, attr->fb,
 					       attr->br, attr->bg, attr->bb);
 	}

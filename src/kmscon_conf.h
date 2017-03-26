@@ -94,10 +94,16 @@ struct kmscon_conf_t {
 	unsigned int sb_size;
 	/* underlined text */
 	bool uline;
+	/* italicized text */
+	bool italic;
 	/* blinking text */
 	bool tblink;
 	/* blinking cursor */
 	bool cblink;
+	/* show issue file */
+	bool issue;
+	/* issue file location */
+	char *isfile;
 
 	/* Input Options */
 	/* input KBD model */

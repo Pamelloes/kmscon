@@ -101,6 +101,9 @@ static void print_help()
 		"\t    --underline             [off]\n"
 		"\t                              Render underlined text (requires pango\n"
 		"\t                              and doubles resource usage for fonts)\n"
+		"\t    --italic                [off]\n"
+		"\t                              Render italicized text (requires pango\n"
+		"\t                              and doubles resource usage for fonts)\n"
 		"\t    --text-blink            [off]\n"
 		"\t                              Render blinking text\n"
 		"\t    --cursor-blink          [on]\n"
@@ -577,8 +580,11 @@ int kmscon_conf_new(struct conf_ctx **out)
 		CONF_OPTION_STRING(0, "palette", &conf->palette, NULL),
 		CONF_OPTION_UINT(0, "sb-size", &conf->sb_size, 1000),
 		CONF_OPTION_BOOL(0, "underline", &conf->uline, false),
+		CONF_OPTION_BOOL(0, "italic", &conf->italic, false),
 		CONF_OPTION_BOOL(0, "text-blink", &conf->tblink, false),
 		CONF_OPTION_BOOL(0, "cursor-blink", &conf->cblink, true),
+		CONF_OPTION_BOOL(0, "show-issue", &conf->issue, true),
+		CONF_OPTION_STRING(0, "issue-file", &conf->isfile, "/etc/issue"),
 
 		/* Input Options */
 		CONF_OPTION_STRING(0, "xkb-model", &conf->xkb_model, ""),

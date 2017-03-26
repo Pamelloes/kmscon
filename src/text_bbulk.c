@@ -46,8 +46,8 @@ struct bbulk {
 	struct uterm_video_blend_req *reqs;
 };
 
-#define FONT_WIDTH(txt) ((txt)->font->attr.width)
-#define FONT_HEIGHT(txt) ((txt)->font->attr.height)
+#define FONT_WIDTH(txt) ((txt)->fonts[0]->attr.width)
+#define FONT_HEIGHT(txt) ((txt)->fonts[0]->attr.height)
 
 static int bbulk_init(struct kmscon_text *txt)
 {
@@ -75,9 +75,12 @@ static int bbulk_set(struct kmscon_text *txt)
 	struct uterm_video_blend_req *req;
 	struct uterm_mode *mode;
 
+	log_warning("bbulk_set");
+
 	memset(bb, 0, sizeof(*bb));
 
 	mode = uterm_display_get_current(txt->disp);
+	log_warning("mode: %p", mode);
 	if (!mode)
 		return -EINVAL;
 	sw = uterm_mode_get_width(mode);
@@ -87,6 +90,7 @@ static int bbulk_set(struct kmscon_text *txt)
 	txt->rows = sh / FONT_HEIGHT(txt);
 
 	bb->reqs = malloc(sizeof(*bb->reqs) * txt->cols * txt->rows);
+	log_warning("bb->reqs: %p", bb->reqs);
 	if (!bb->reqs)
 		return -ENOMEM;
 	memset(bb->reqs, 0, sizeof(*bb->reqs) * txt->cols * txt->rows);
@@ -120,29 +124,24 @@ static int bbulk_draw(struct kmscon_text *txt,
 	const struct kmscon_glyph *glyph;
 	int ret;
 	struct uterm_video_blend_req *req;
+	int fonti;
 	struct kmscon_font *font;
 	bool curon, underline, inverse;
 
 	curon = attr->cursor && !(txt->conf->cblink && txt->blink);
 	underline = txt->conf->uline ? (!attr->underline != !curon) : attr->underline;
-	inverse = txt->conf->uline ? attr-> inverse : (!attr->inverse != !curon);
+	inverse = txt->conf->uline ? attr->inverse : (!curon && attr->inverse);
 
 	if (!width) {
 		bb->reqs[posy * txt->cols + posx].buf = NULL;
 		return 0;
 	}
 
-	if (attr->bold) {
-		if (underline)
-			font = txt->uline_bold_font;
-		else
-			font = txt->bold_font;
-	} else {
-		if (underline)
-			font = txt->uline_font;
-		else
-			font = txt->font;
-	}
+    fonti = KMSCON_TEXT_NORMAL;
+	fonti |= attr->bold ? KMSCON_TEXT_BOLD : 0;
+	fonti |= underline ? KMSCON_TEXT_UNDERLINE : 0;
+	fonti |= attr->italic ? KMSCON_TEXT_ITALIC : 0;
+	font = txt->fonts[fonti];
 
 	if (!len || (txt->conf->tblink && attr->blink && txt->blink)) {
 		ret = kmscon_font_render_empty(font, &glyph);
@@ -165,6 +164,13 @@ static int bbulk_draw(struct kmscon_text *txt,
 		req->br = attr->fr;
 		req->bg = attr->fg;
 		req->bb = attr->fb;
+	} else if (!txt->conf->uline && curon) {
+		req->fr = 255;
+		req->fg = 255;
+		req->fb = 255;
+		req->br = 147;
+		req->bg = 147;
+		req->bb = 147;
 	} else {
 		req->fr = attr->fr;
 		req->fg = attr->fg;

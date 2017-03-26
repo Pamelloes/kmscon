@@ -43,6 +43,13 @@
 
 /* text renderer */
 
+enum kmscon_text_ftype {
+	KMSCON_TEXT_NORMAL		= 0,
+	KMSCON_TEXT_BOLD		= 1<<0,
+	KMSCON_TEXT_UNDERLINE	= 1<<1,
+	KMSCON_TEXT_ITALIC		= 1<<2,
+};
+
 struct kmscon_text;
 struct kmscon_text_ops;
 
@@ -52,10 +59,7 @@ struct kmscon_text {
 	const struct kmscon_text_ops *ops;
 	void *data;
 
-	struct kmscon_font *font;
-	struct kmscon_font *bold_font;
-	struct kmscon_font *uline_font;
-	struct kmscon_font *uline_bold_font;
+	struct kmscon_font *fonts[8];
 	struct uterm_display *disp;
 	unsigned int cols;
 	unsigned int rows;
@@ -76,10 +80,10 @@ struct kmscon_text_ops {
 	void (*unset) (struct kmscon_text *txt);
 	int (*prepare) (struct kmscon_text *txt);
 	int (*draw) (struct kmscon_text *txt,
-		     uint32_t id, const uint32_t *ch, size_t len,
-		     unsigned int width,
-		     unsigned int posx, unsigned int posy,
-		     const struct tsm_screen_attr *attr);
+			 uint32_t id, const uint32_t *ch, size_t len,
+			 unsigned int width,
+			 unsigned int posx, unsigned int posy,
+			 const struct tsm_screen_attr *attr);
 	int (*render) (struct kmscon_text *txt);
 	void (*abort) (struct kmscon_text *txt);
 };
@@ -88,26 +92,23 @@ int kmscon_text_register(const struct kmscon_text_ops *ops);
 void kmscon_text_unregister(const char *name);
 
 int kmscon_text_new(struct kmscon_text **out, const char *backend, 
-		    struct conf_ctx *conf_ctx, struct kmscon_conf_t *conf);
+			struct conf_ctx *conf_ctx, struct kmscon_conf_t *conf);
 void kmscon_text_ref(struct kmscon_text *txt);
 void kmscon_text_unref(struct kmscon_text *txt);
 
 int kmscon_text_set(struct kmscon_text *txt,
-		    struct kmscon_font *font,
-		    struct kmscon_font *bold_font,
-		    struct kmscon_font *uline_font,
-		    struct kmscon_font *uline_bold_font,
-		    struct uterm_display *disp);
+			struct kmscon_font *fonts[8],
+			struct uterm_display *disp);
 void kmscon_text_unset(struct kmscon_text *txt);
 unsigned int kmscon_text_get_cols(struct kmscon_text *txt);
 unsigned int kmscon_text_get_rows(struct kmscon_text *txt);
 
 int kmscon_text_prepare(struct kmscon_text *txt);
 int kmscon_text_draw(struct kmscon_text *txt,
-		     uint32_t id, const uint32_t *ch, size_t len,
-		     unsigned int width,
-		     unsigned int posx, unsigned int posy,
-		     const struct tsm_screen_attr *attr);
+			 uint32_t id, const uint32_t *ch, size_t len,
+			 unsigned int width,
+			 unsigned int posx, unsigned int posy,
+			 const struct tsm_screen_attr *attr);
 int kmscon_text_render(struct kmscon_text *txt);
 void kmscon_text_abort(struct kmscon_text *txt);
 

@@ -484,6 +484,8 @@ check_PROGRAMS += \
 MANPAGES += docs/man/kmscon.1
 
 kmscon_SOURCES = \
+	src/color-names.h \
+	src/color-names.c \
 	src/conf.h \
 	src/conf.c \
 	src/pty.h \

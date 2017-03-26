@@ -45,13 +45,15 @@
 #include <stdbool.h>
 #include <stdlib.h>
 
+#include "kmscon_conf.h"
+
 struct kmscon_pty;
 
 typedef void (*kmscon_pty_input_cb)
 	(struct kmscon_pty *pty, const char *u8, size_t len, void *data);
 
-int kmscon_pty_new(struct kmscon_pty **out, kmscon_pty_input_cb input_cb,
-		   void *data);
+int kmscon_pty_new(struct kmscon_pty **out, struct kmscon_conf_t *conf,
+                   kmscon_pty_input_cb input_cb, void *data);
 void kmscon_pty_ref(struct kmscon_pty *pty);
 void kmscon_pty_unref(struct kmscon_pty *pty);
 int kmscon_pty_set_term(struct kmscon_pty *pty, const char *term);

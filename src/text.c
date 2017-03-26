@@ -222,69 +222,65 @@ void kmscon_text_unref(struct kmscon_text *text)
 /**
  * kmscon_text_set:
  * @txt: Valid text-renderer object
- * @font: font object
- * @bold_font: bold font object or NULL
- * @uline_font: underlined font object or NULL
- * @uline_bold_font: underlined bold font object or NULL
+ * @fonts: An array of the eight font objects
  * @disp: display object
  *
- * This makes the text-renderer @txt use the font @font and screen @screen. You
+ * This makes the text-renderer @txt use the fonts @fonts and screen @screen. You
  * can drop your reference to both after calling this.
  * This calls kmscon_text_unset() first to remove all previous associations.
  * None of the arguments can be NULL!
+ * The fonts are indexed by the 8 possible combinations of the attribute flags.
+ * The first font (no attributes) must not be NULL. If any of the others are NULL
+ * they will be set to the nearest alternative.
  * If this function fails then you must assume that no font/screen will be set
  * and the object is invalid.
- * If @bold_font is NULL, @font is also used for bold characters. 
- * If @uline_font is NULL, @font is also used for underlined characters.
- * If @uline_bold_font is NULL, @bold_font is also used for bold underlined characters.
  * The caller must make sure that all of the fonts have the same metrics. The renderers
- * will always use the metrics of @font.
+ * will always use the metrics of the first @font.
  *
  * Returns: 0 on success, negative error code on failure.
  */
 int kmscon_text_set(struct kmscon_text *txt,
-		    struct kmscon_font *font,
-		    struct kmscon_font *bold_font,
-		    struct kmscon_font *uline_font,
-		    struct kmscon_font *uline_bold_font,
+		    struct kmscon_font *fonts[8],
 		    struct uterm_display *disp)
 {
-	int ret;
+	int ret, i;
 
-	if (!txt || !font || !disp)
+	if (!txt || !fonts || !fonts[0] || !disp)
 		return -EINVAL;
 
-	if (!bold_font)
-		bold_font = font;
-	if (!uline_font)
-		uline_font = font;
-	if (!uline_bold_font)
-		uline_bold_font = font;
+	for (i = 0; i < 8; i++) {
+		log_warning("KTS Font %d: %p", i, fonts[i]);
+		if (fonts[i]) continue;
+
+		// Due to the way the flags are set up, this should
+		// propagate correctly
+		if (i & KMSCON_TEXT_ITALIC)
+			fonts[i] = fonts[i ^ KMSCON_TEXT_ITALIC];
+		else if (i & KMSCON_TEXT_UNDERLINE)
+			fonts[i] = fonts[i ^ KMSCON_TEXT_UNDERLINE];
+		else if (i & KMSCON_TEXT_BOLD) 
+			fonts[i] = fonts[i ^ KMSCON_TEXT_BOLD];
+
+		// But make sure it works, anyways
+		if (!fonts[i]) return -EINVAL;
+	}
 
 	kmscon_text_unset(txt);
 
-	txt->font = font;
-	txt->bold_font = bold_font;
-	txt->uline_font = uline_font;
-	txt->uline_bold_font = uline_bold_font;
+	memcpy(txt->fonts, fonts, 8 * sizeof(struct kmscon_font*));
 	txt->disp = disp;
 
 	if (txt->ops->set) {
 		ret = txt->ops->set(txt);
 		if (ret) {
-			txt->font = NULL;
-			txt->bold_font = NULL;
-			txt->uline_font = NULL;
-			txt->uline_bold_font = NULL;
-			txt->disp = NULL;
+			log_warning("ops fail");
+			memset(txt->fonts, 0, 8 * sizeof(struct kmscon_font*));
 			return ret;
 		}
 	}
 
-	kmscon_font_ref(txt->font);
-	kmscon_font_ref(txt->bold_font);
-	kmscon_font_ref(txt->uline_font);
-	kmscon_font_ref(txt->uline_bold_font);
+	for (i = 0; i < 8; i++)
+		kmscon_font_ref(txt->fonts[i]);
 	uterm_display_ref(txt->disp);
 
 	return 0;
@@ -301,21 +297,19 @@ int kmscon_text_set(struct kmscon_text *txt,
  */
 void kmscon_text_unset(struct kmscon_text *txt)
 {
-	if (!txt || !txt->disp || !txt->font)
+	int i;
+
+	if (!txt || !txt->disp || !txt->fonts[0])
 		return;
 
 	if (txt->ops->unset)
 		txt->ops->unset(txt);
 
-	kmscon_font_unref(txt->font);
-	kmscon_font_unref(txt->bold_font);
-	kmscon_font_unref(txt->uline_font);
-	kmscon_font_unref(txt->uline_bold_font);
+	for (i = 0; i < 8; i++)
+		kmscon_font_unref(txt->fonts[i]);
 	uterm_display_unref(txt->disp);
-	txt->font = NULL;
-	txt->bold_font = NULL;
-	txt->uline_font = NULL;
-	txt->uline_bold_font = NULL;
+
+	memset(txt->fonts, 0, 8 * sizeof(struct kscon_font*));
 	txt->disp = NULL;
 	txt->cols = 0;
 	txt->rows = 0;
@@ -380,7 +374,7 @@ int kmscon_text_prepare(struct kmscon_text *txt)
 	int64_t off, msec;
 	struct timespec spec;
 
-	if (!txt || !txt->font || !txt->disp)
+	if (!txt || !txt->fonts[0] || !txt->disp)
 		return -EINVAL;
 
 	// Update the blink status
